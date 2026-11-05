@@ -1,5 +1,8 @@
 ﻿using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using MovieTicketBooking.DTOs.Bookings;
+using MovieTicketBooking.Services.Interfaces;
+using System.Threading.Tasks;
 
 namespace MovieTicketBooking.Controllers
 {
@@ -7,26 +10,38 @@ namespace MovieTicketBooking.Controllers
     [Route("api/[controller]")]
     public class BookingsController : ControllerBase
     {
-        // Accessible by ANY authenticated user (Customer or Admin)
-        [HttpPost]
-        [Authorize]
-        public IActionResult CreateBooking()
+        private readonly IBookingService _bookingService;
+
+        public BookingsController(IBookingService bookingService)
         {
-            return Ok(new
+            _bookingService = bookingService;
+        }
+
+        // Protected by the custom Owner Authorization Policy
+        [HttpPost]
+        [Authorize(Policy = "SameUserBookingPolicy")]
+        public async Task<IActionResult> CreateBooking([FromBody] CreateBookingRequest request)
+        {
+            var createdBooking = await _bookingService.CreateBookingAsync(request);
+
+            if (createdBooking == null)
             {
-                message = "Booking created successfully!"
-            });
+                return BadRequest(new
+                {
+                    message = "Booking failed. One or more seats are invalid or already booked."
+                });
+            }
+
+            return Ok(createdBooking);
         }
 
         // Restricted STRICTLY to Admins
         [HttpGet("all")]
         [Authorize(Roles = "Admin")]
-        public IActionResult GetAllBookingsForAdmin()
+        public async Task<IActionResult> GetAllBookingsForAdmin()
         {
-            return Ok(new
-            {
-                message = "Here are all system bookings (Admin view)."
-            });
+            var bookings = await _bookingService.GetAllBookingsAsync();
+            return Ok(bookings);
         }
     }
 }
