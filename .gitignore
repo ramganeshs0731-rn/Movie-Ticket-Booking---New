@@ -1,3 +1,19 @@
+# .NET build outputs & Visual Studio files
+[Bb]in/
+[Oo]bj/
 .vs/
-bin/
-obj/
+*.user
+*.suo
+x64/
+x86/
+
+# Angular / Node modules
+node_modules/
+dist/
+build/
+.angular/
+npm-debug.log*
+
+# OS files
+.DS_Store
+Thumbs.db
