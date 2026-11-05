@@ -1,7 +1,10 @@
 using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
+using MovieTicketBooking.Authorization;
 using MovieTicketBooking.Data;
+using MovieTicketBooking.Middlewares; // <-- Namespace for your diagnostic middlewares
 using MovieTicketBooking.Repositories;
 using MovieTicketBooking.Repositories.Interfaces;
 using MovieTicketBooking.Services;
@@ -14,6 +17,18 @@ var builder = WebApplication.CreateBuilder(args);
 // Add services to the container.
 builder.Services.AddControllers();
 
+// Register OpenAPI services required for Scalar
+builder.Services.AddOpenApi();
+
+// Configure CORS for Angular Frontend (Port 4200)
+builder.Services.AddCors(options =>
+{
+    options.AddPolicy("AllowAngular",
+        policy => policy.WithOrigins("http://localhost:4200")
+                        .AllowAnyHeader()
+                        .AllowAnyMethod());
+});
+
 // Configure Entity Framework Core with SQL Server using the DefaultConnection string
 builder.Services.AddDbContext<ApplicationDbContext>(options =>
     options.UseSqlServer(builder.Configuration.GetConnectionString("DefaultConnection")));
@@ -21,8 +36,7 @@ builder.Services.AddDbContext<ApplicationDbContext>(options =>
 // ==========================================
 // DEPENDENCY INJECTION REGISTRATIONS
 // ==========================================
-
-// 1. User & Auth Module (Added for AuthController)
+// 1. User & Auth Module
 builder.Services.AddScoped<IUserRepository, UserRepository>();
 builder.Services.AddScoped<IUserService, UserService>();
 
@@ -54,7 +68,13 @@ builder.Services.AddScoped<IBookingRepository, BookingRepository>();
 builder.Services.AddScoped<IBookingService, BookingService>();
 
 // ==========================================
-// JWT AUTHENTICATION CONFIGURATION
+// AUTHORIZATION HANDLER & ACCESSOR
+// ==========================================
+builder.Services.AddHttpContextAccessor();
+builder.Services.AddScoped<IAuthorizationHandler, SameUserBookingHandler>();
+
+// ==========================================
+// JWT AUTHENTICATION & AUTHORIZATION CONFIGURATION
 // ==========================================
 builder.Services.AddAuthentication(options =>
 {
@@ -77,28 +97,46 @@ builder.Services.AddAuthentication(options =>
     };
 });
 
-builder.Services.AddAuthorization();
-
-// Learn more about configuring Swagger/OpenAPI
-builder.Services.AddEndpointsApiExplorer();
-builder.Services.AddSwaggerGen();
+builder.Services.AddAuthorization(options =>
+{
+    options.AddPolicy("SameUserBookingPolicy", policy =>
+        policy.Requirements.Add(new SameUserBookingRequirement()));
+});
 
 var app = builder.Build();
 
-// Configure the HTTP request pipeline.
-if (app.Environment.IsDevelopment())
-{
-    app.UseSwagger();
-    app.UseSwaggerUI(); // Swagger UI available at /swagger
-}
+// ==========================================
+// HTTP REQUEST PIPELINE
+// ==========================================
 
 //app.UseHttpsRedirection();
 
-// Authentication MUST be placed BEFORE UseAuthorization and MapControllers
+// CORS MUST be placed before Authentication and Authorization
+app.UseCors("AllowAngular");
+
+// Endpoint Metadata Diagnostics (Development only)
+if (app.Environment.IsDevelopment())
+{
+    app.UseMiddleware<EndpointMetadataMiddleware>();
+}
+
+// Authentication middleware populates HttpContext.User from JWT
 app.UseAuthentication();
+
+// Authentication and Authorization Diagnostics (Development only)
+if (app.Environment.IsDevelopment())
+{
+    app.UseMiddleware<AuthenticationDiagnosticsMiddleware>();
+    app.UseMiddleware<AuthorizationDiagnosticsMiddleware>();
+}
+
+// Authorization checks permissions and custom policies (like SameUserBookingPolicy)
 app.UseAuthorization();
 
 app.MapControllers();
+
+// Map the OpenAPI JSON endpoint so Scalar can read it
+app.MapOpenApi();
 
 // Configure Scalar API reference endpoint at /scalar
 app.MapScalarApiReference(options =>
